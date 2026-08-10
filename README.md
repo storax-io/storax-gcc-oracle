@@ -60,6 +60,11 @@ cascade can emit hundreds of megabytes, and the platform has the scars.
 Or ship the prebuilt image: `docker save storax-gxx-oracle | gzip` to the
 target and use `run-container.sh` (compose-free).
 
+Client configuration (flag > env > default): `--url` / `ORACLE_URL` takes
+one URL or a comma-separated list — with a list, jobs round-robin across
+oracles (client-side sharding is the scale-out mechanism);
+`--timeout` / `ORACLE_TIMEOUT_S`.
+
 ## Consumers
 
 - storax enhancement gates (`STORAX_GATE_ORACLE_URL`) — compiler-verified
@@ -69,5 +74,5 @@ target and use `run-container.sh` (compose-free).
 - validation stages for reflection-family benchmark instances
 
 ---
-Built for the storax platform (AGPL-3.0). Developed with AI assistance
+Built for the storax platform. Licensed Apache-2.0 (this component). Developed with AI assistance
 (Claude); all design decisions and commits by the human maintainer.
