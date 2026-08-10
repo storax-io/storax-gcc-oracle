@@ -1,0 +1,14 @@
+name: storax-gxx-oracle
+# Runs on the compile host — compile jobs are pure CPU, so colocate with cores.
+services:
+  oracle:
+    build: .
+    image: storax-gxx-oracle
+    container_name: storax-gxx-oracle
+    ports:
+      - "8950:8950"
+    tmpfs:
+      # every job compiles here; nothing in the container touches disk
+      - /dev/shm:size=1g,exec
+    mem_limit: 4g
+    restart: unless-stopped
