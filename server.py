@@ -50,6 +50,13 @@ C26_ARGS = ["-std=c++26", "-freflection", "-fcontracts",
             "-fcontract-evaluation-semantic=enforce", "-Wall", "-Wextra"]
 
 _jobs_done = 0
+# TRAINING deployments run with ORACLE_ALLOW_RUN=0: reward evaluation must
+# not execute model-generated binaries (hs 2026-08-11) — compile +
+# static_assert IS the verdict there. Executing (run:true) is reserved for
+# platform gates; if a training curriculum ever needs runtime behaviour,
+# each execution belongs in a throwaway sandboxed container (no net,
+# dropped caps, destroyed after), not in this persistent one.
+ALLOW_RUN = os.environ.get("ORACLE_ALLOW_RUN", "1") != "0"
 # GIANT PARALLELISM contract (hs 2026-08-10): callers may throw hundreds of
 # jobs at once (training rewards, batch gates). Every HTTP thread is cheap;
 # the COMPILES are bounded to the core count — excess jobs queue on the
@@ -81,6 +88,10 @@ def compile_job(req: dict) -> dict:
     if main is None or main not in files:
         return {"ok": False, "error": "multi-file job needs main: <name>"}
     run = bool(req.get("run"))
+    if run and not ALLOW_RUN:
+        return {"ok": False,
+                "error": "execution disabled (ORACLE_ALLOW_RUN=0): this "
+                         "oracle grades by compile + static_assert only"}
     timeout = min(float(req.get("timeout") or 60), 300.0)
 
     d = tempfile.mkdtemp(prefix="job-", dir=WORK)
