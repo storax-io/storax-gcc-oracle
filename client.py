@@ -62,6 +62,32 @@ class Oracle:
         return self._rpc(next(self._rr), "/compile", body)
 
 
+def submit(files, *, run=False, args=None, base: str = "") -> tuple[str, str]:
+    """Fire a job; returns (base_url, job_id). Collect from ANY process."""
+    o = Oracle(base or DEFAULT_URLS)
+    url = next(o._rr)
+    body = {"files": files if isinstance(files, dict) else {"main.cpp": files},
+            "run": run, "async": True}
+    if args:
+        body["args"] = args
+    return url, o._rpc(url, "/compile", body)["job_id"]
+
+
+def collect(url: str, job_id: str, *, wait: float = 300.0,
+            poll: float = 0.5) -> dict:
+    """Fetch an async result — usable from a fork, a retry, anywhere."""
+    import time as _t
+    o = Oracle(url)
+    deadline = _t.monotonic() + wait
+    while True:
+        r = o._rpc(url, f"/result/{job_id}")
+        if not r.get("pending"):
+            return r
+        if _t.monotonic() > deadline:
+            raise TimeoutError(f"job {job_id} still pending after {wait}s")
+        _t.sleep(poll)
+
+
 def compile_src(src: str, *, run: bool = False, args: list[str] | None = None,
                 base: str = "") -> dict:
     """Back-compat one-shot helper (base: single URL or empty for env)."""

@@ -36,6 +36,22 @@ Default flags: `-std=c++26 -freflection -fcontracts
 unless `run` is set. stdout/stderr are byte-capped — a single template
 cascade can emit hundreds of megabytes, and the platform has the scars.
 
+## Architecture contract (2026-08-11)
+
+**The oracle is oracle-only** — never colocated with a trainer or any
+other workload. The trainer is an HTTP client; the judge is this sealed
+container. Size budget: **under 500 MB** (currently 436 MB — enforced by
+talking to the Docker Engine API over the socket instead of shipping the
+~400 MB docker-cli package).
+
+Execution model: compile/link happen in the oracle; every **exec** gets a
+**fresh sibling container** — the binary and its 16.1 runtime stream in
+via the Engine archive API (no shared volumes, no host paths), output
+streams back, the container is destroyed. Callers are fork-aware: submit
+with `"async": true` → `{job_id}` is the pointer; ANY process collects at
+`GET /result/<job_id>`. Run modes: `sandbox` (default), `off`
+(training: compile+link, never execute), `inline` (dev only).
+
 ## Design
 
 - **Exact toolchain identity.** The binaries are the platform's

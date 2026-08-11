@@ -7,6 +7,10 @@ services:
     container_name: storax-gxx-oracle
     ports:
       - "8950:8950"
+    volumes:
+      # every exec spawns a FRESH sibling container; the binary streams in
+      # over stdin (no shared volumes), async job_id is the caller's pointer
+      - /var/run/docker.sock:/var/run/docker.sock
     tmpfs:
       # every job compiles here; nothing in the container touches disk
       - /dev/shm:size=1g,exec
