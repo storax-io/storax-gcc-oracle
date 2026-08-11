@@ -100,7 +100,8 @@ def compile_job(req: dict) -> dict:
         return {"ok": False, "error": "multi-file job needs main: <name>"}
     run = bool(req.get("run"))
     link = bool(req.get("link")) or run
-    if run and RUN_MODE == "off":
+    degraded = run and RUN_MODE == "off"
+    if degraded:
         # training grades by compile+LINK (hs: "you can of course link,
         # but not run") — degrade the job rather than refuse it
         run, link = False, True
@@ -128,8 +129,13 @@ def compile_job(req: dict) -> dict:
         try:
             p = subprocess.run(argv, cwd=d, env=env, capture_output=True,
                                timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "rc": -1, "error": f"compile timeout {timeout}s",
+        except subprocess.TimeoutExpired as te:
+            # partial streams matter: a timeout mid-cascade still shows
+            # WHICH error the compiler was drowning in
+            return {"ok": False, "rc": -1,
+                    "error": f"compile timeout {timeout}s",
+                    "stdout": _capped(te.stdout or b""),
+                    "stderr": _capped(te.stderr or b""),
                     "ms": round((time.monotonic() - t0) * 1000)}
         out = {"rc": p.returncode, "stdout": _capped(p.stdout),
                "stderr": _capped(p.stderr)}
@@ -165,9 +171,16 @@ def compile_job(req: dict) -> dict:
                            run_stderr=_capped(r.stderr),
                            run_mode=RUN_MODE)
                 ok = r.returncode == 0
-            except subprocess.TimeoutExpired:
-                out.update(run_rc=-1, run_stderr="run timeout")
+            except subprocess.TimeoutExpired as te:
+                out.update(run_rc=-1,
+                           run_stdout=_capped(te.stdout or b""),
+                           run_stderr=_capped(te.stderr or b"")
+                           + "\n[oracle] run timeout",
+                           run_mode=RUN_MODE)
                 ok = False
+        if degraded:
+            out["run_degraded"] = ("executed nothing: ORACLE_RUN_MODE=off "
+                                   "grades compile+link only")
         out["ok"] = ok
         out["ms"] = round((time.monotonic() - t0) * 1000)
         _jobs_done += 1
