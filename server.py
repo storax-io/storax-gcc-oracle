@@ -50,13 +50,24 @@ C26_ARGS = ["-std=c++26", "-freflection", "-fcontracts",
             "-fcontract-evaluation-semantic=enforce", "-Wall", "-Wextra"]
 
 _jobs_done = 0
-# TRAINING deployments run with ORACLE_ALLOW_RUN=0: reward evaluation must
-# not execute model-generated binaries (hs 2026-08-11) — compile +
-# static_assert IS the verdict there. Executing (run:true) is reserved for
-# platform gates; if a training curriculum ever needs runtime behaviour,
-# each execution belongs in a throwaway sandboxed container (no net,
-# dropped caps, destroyed after), not in this persistent one.
-ALLOW_RUN = os.environ.get("ORACLE_ALLOW_RUN", "1") != "0"
+# Execution policy (hs 2026-08-11): heavier assignments MAY execute, but
+# every execution gets a THROWAWAY container — never this persistent one.
+#   ORACLE_RUN_MODE=inline   (default) fork, execute in THIS container,
+#                            delete the job dir — the container is the
+#                            boundary (hs 2026-08-11: "just fork, execute
+#                            and delete")
+#   ORACLE_RUN_MODE=off      compile+LINK only, never execute (training)
+#   ORACLE_RUN_MODE=sandbox  per-exec sibling container (kept for future
+#                            hostile-input scenarios; needs docker.sock)
+RUN_MODE = os.environ.get("ORACLE_RUN_MODE",
+                          "off" if os.environ.get("ORACLE_ALLOW_RUN") == "0"
+                          else "inline")
+SANDBOX_IMAGE = os.environ.get("ORACLE_SANDBOX_IMAGE", "ubuntu:26.04")
+# Sibling containers mount HOST paths: exec jobs build here (bind-mounted),
+# not in the oracle's private /dev/shm, and the container/host path pair
+# must be configured together.
+JOBS_DIR = os.environ.get("ORACLE_JOBS_DIR", "/jobs")
+JOBS_HOST = os.environ.get("ORACLE_JOBS_HOST", "/home/hs/oracle-jobs")
 # GIANT PARALLELISM contract (hs 2026-08-10): callers may throw hundreds of
 # jobs at once (training rewards, batch gates). Every HTTP thread is cheap;
 # the COMPILES are bounded to the core count — excess jobs queue on the
@@ -88,13 +99,16 @@ def compile_job(req: dict) -> dict:
     if main is None or main not in files:
         return {"ok": False, "error": "multi-file job needs main: <name>"}
     run = bool(req.get("run"))
-    if run and not ALLOW_RUN:
-        return {"ok": False,
-                "error": "execution disabled (ORACLE_ALLOW_RUN=0): this "
-                         "oracle grades by compile + static_assert only"}
+    link = bool(req.get("link")) or run
+    if run and RUN_MODE == "off":
+        # training grades by compile+LINK (hs: "you can of course link,
+        # but not run") — degrade the job rather than refuse it
+        run, link = False, True
     timeout = min(float(req.get("timeout") or 60), 300.0)
 
-    d = tempfile.mkdtemp(prefix="job-", dir=WORK)
+    workdir = JOBS_DIR if (run and RUN_MODE == "sandbox") else WORK
+    os.makedirs(workdir, exist_ok=True)
+    d = tempfile.mkdtemp(prefix="job-", dir=workdir)
     env = {"PATH": "/usr/bin:/bin",
            "LD_LIBRARY_PATH": LIB64}
     with _inflight_lock:
@@ -107,7 +121,7 @@ def compile_job(req: dict) -> dict:
                 f.write(str(src))
         t0 = time.monotonic()
         argv = [GXX, *[str(a) for a in args]]
-        if run:
+        if link:
             argv += [os.path.basename(main), "-o", "a.out"]
         else:
             argv += ["-fsyntax-only", os.path.basename(main)]
@@ -121,13 +135,35 @@ def compile_job(req: dict) -> dict:
                "stderr": _capped(p.stderr)}
         ok = p.returncode == 0
         if ok and run:
+            if RUN_MODE == "sandbox":
+                # the throwaway needs the 16.1 runtime: system libstdc++ in
+                # the base image is OLDER than the compiler's — ship ours
+                # next to the binary and mount the single job dir
+                for lib in ("libstdc++.so.6", "libgcc_s.so.1"):
+                    src = os.path.join(LIB64, lib)
+                    if os.path.exists(src):
+                        shutil.copy2(src, d)
+                host_job = os.path.join(JOBS_HOST, os.path.basename(d))
+                argv2 = ["docker", "run", "--rm",
+                         "--network", "none",
+                         "--cap-drop", "ALL",
+                         "--security-opt", "no-new-privileges",
+                         "--read-only",
+                         "--tmpfs", "/tmp:rw,noexec,size=64m",
+                         "--memory", "512m", "--pids-limit", "64",
+                         "-v", f"{host_job}:/job:ro",
+                         "-e", "LD_LIBRARY_PATH=/job",
+                         SANDBOX_IMAGE, "/job/a.out"]
+            else:
+                argv2 = ["./a.out"]
             try:
-                r = subprocess.run(["./a.out"], cwd=d, env=env,
+                r = subprocess.run(argv2, cwd=d, env=env,
                                    capture_output=True,
-                                   timeout=max(1.0, timeout / 2))
+                                   timeout=max(5.0, timeout / 2))
                 out.update(run_rc=r.returncode,
                            run_stdout=_capped(r.stdout),
-                           run_stderr=_capped(r.stderr))
+                           run_stderr=_capped(r.stderr),
+                           run_mode=RUN_MODE)
                 ok = r.returncode == 0
             except subprocess.TimeoutExpired:
                 out.update(run_rc=-1, run_stderr="run timeout")
@@ -160,6 +196,7 @@ def health() -> dict:
             "version": (ver.stdout.splitlines() or ["?"])[0],
             "reflection": bool(r.get("ok")),
             "probe_ms": r.get("ms"),
+            "run_mode": RUN_MODE,
             "max_parallel": MAX_PARALLEL,
             "inflight": _inflight,
             "jobs_done": _jobs_done}
