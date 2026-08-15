@@ -41,6 +41,10 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 GXX = os.environ.get("ORACLE_GXX", "/opt/gcc-16.1/bin/g++")
+# whitelisted alternate driver: real-C gating. The GCC16 toolchain is
+# built C++-only (no cc1), so C jobs use the system compiler until the
+# c,c++ rebuild ships. Request field: {"driver": "gcc"}.
+SYS_GCC = os.environ.get("ORACLE_SYS_GCC", "/usr/bin/gcc")
 LIB64 = os.path.join(os.path.dirname(os.path.dirname(GXX)), "lib64")
 WORK = os.environ.get("ORACLE_WORKDIR", "/dev/shm/oracle")
 PORT = int(os.environ.get("ORACLE_PORT", "8950"))
@@ -188,6 +192,7 @@ def compile_job(req: dict) -> dict:
     main = req.get("main") or (next(iter(files)) if len(files) == 1 else None)
     if main is None or main not in files:
         return {"ok": False, "error": "multi-file job needs main: <name>"}
+    driver = GXX if req.get("driver") != "gcc" else SYS_GCC
     run = bool(req.get("run"))
     link = bool(req.get("link")) or run
     degraded = run and RUN_MODE == "off"
@@ -209,7 +214,7 @@ def compile_job(req: dict) -> dict:
             with open(os.path.join(d, safe), "w") as f:
                 f.write(str(src))
         t0 = time.monotonic()
-        argv = [GXX, *[str(a) for a in args]]
+        argv = [driver, *[str(a) for a in args]]
         if link:
             argv += [os.path.basename(main), "-o", "a.out"]
         else:
