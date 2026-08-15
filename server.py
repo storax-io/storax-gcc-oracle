@@ -375,5 +375,9 @@ if __name__ == "__main__":
     h = health()
     print(f"health: {h}", flush=True)
     if not h["reflection"]:
-        raise SystemExit("REFUSING to serve: reflection probe failed")
+        if os.environ.get("ORACLE_ALLOW_NO_REFLECTION") == "1":
+            print("[oracle] serving WITHOUT reflection (special-purpose "
+                  "instance; health reports reflection:false)", flush=True)
+        else:
+            raise SystemExit("REFUSING to serve: reflection probe failed")
     Server(("0.0.0.0", PORT), Handler).serve_forever()
