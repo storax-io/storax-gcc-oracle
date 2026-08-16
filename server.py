@@ -209,16 +209,27 @@ def compile_job(req: dict) -> dict:
         _inflight += 1
     _slots.acquire()
     try:
+        def _safe_rel(name):
+            # containment, not flattening: repo-shaped jobs need nested
+            # paths ("src/json/json.hpp") so "../"-style quote includes
+            # resolve; anything absolute or escaping the job dir is refused
+            p = os.path.normpath(str(name))
+            if os.path.isabs(p) or p == ".." or p.startswith("../") or "\x00" in p:
+                return os.path.basename(p)
+            return p
         for name, src in files.items():
-            safe = os.path.basename(str(name))
+            safe = _safe_rel(name)
+            if os.path.dirname(safe):
+                os.makedirs(os.path.join(d, os.path.dirname(safe)), exist_ok=True)
             with open(os.path.join(d, safe), "w") as f:
                 f.write(str(src))
         t0 = time.monotonic()
+        main_rel = _safe_rel(main)
         argv = [driver, *[str(a) for a in args]]
         if link:
-            argv += [os.path.basename(main), "-o", "a.out"]
+            argv += [main_rel, "-o", "a.out"]
         else:
-            argv += ["-fsyntax-only", os.path.basename(main)]
+            argv += ["-fsyntax-only", main_rel]
         try:
             p = subprocess.run(argv, cwd=d, env=env, capture_output=True,
                                timeout=timeout)
