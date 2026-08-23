@@ -48,8 +48,10 @@ SYS_GCC = os.environ.get("ORACLE_SYS_GCC", "/usr/bin/gcc")
 LIB64 = os.path.join(os.path.dirname(os.path.dirname(GXX)), "lib64")
 WORK = os.environ.get("ORACLE_WORKDIR", "/dev/shm/oracle")
 PORT = int(os.environ.get("ORACLE_PORT", "8950"))
-MAX_SOURCE = 4 * 1024 * 1024     # per request, all files — package-TU
-# closures (zstd/spdlog/llvm-class headers) legitimately reach MBs
+MAX_SOURCE = int(os.environ.get("ORACLE_MAX_SOURCE",
+                                12 * 1024 * 1024))  # per request, all files
+# — package-TU closures (zstd/spdlog/llvm-class headers) legitimately
+# reach MBs; llvm/mlir closures cross 4MB routinely (wave-4)
 MAX_OUTPUT = 256 * 1024          # stderr/stdout cap per stream
 C26_ARGS = ["-std=c++26", "-freflection", "-fcontracts",
             "-fcontract-evaluation-semantic=enforce", "-Wall", "-Wextra"]
