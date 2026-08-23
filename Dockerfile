@@ -12,8 +12,12 @@
 # probe does not compile — a broken oracle image cannot exist.
 FROM ubuntu:26.04
 
+# system gcc = the C front end (the /opt toolchain is C++-only by
+# design: cc1 stripped). server.py's whitelisted {"driver":"gcc"} path
+# needs it — real-C corpus gating (wave-2 finding: judging C with g++
+# silently rejects idiomatic C).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        binutils python3 libc6-dev \
+        binutils python3 libc6-dev gcc \
     && rm -rf /var/lib/apt/lists/*
 
 COPY toolchain /opt/gcc-16.1
