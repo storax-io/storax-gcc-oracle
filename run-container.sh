@@ -8,7 +8,7 @@ docker run -d --name storax-gxx-oracle \
   -p 8950:8950 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --tmpfs /dev/shm:rw,exec,size=1g \
-  --memory 4g \
+  --memory 24g \
   --restart unless-stopped \
   storax-gxx-oracle
 sleep 3

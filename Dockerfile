@@ -17,10 +17,12 @@ FROM ubuntu:26.04
 # needs it — real-C corpus gating (wave-2 finding: judging C with g++
 # silently rejects idiomatic C).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        binutils python3 libc6-dev gcc libcrypt-dev \
+        binutils python3 libc6-dev gcc libcrypt-dev libssl-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 # libcrypt-dev: crypt.h moved out of glibc — real-C corpus TUs include it
 # unconditionally on Linux (wave-3g: nginx 124/124 voided on the header)
+# libssl-dev/zlib1g-dev: s2n-tls 166/174 on openssl/x509.h, opencv tails
+# on zlib.h (wave-6/7) — the complete-header charter, again
 
 COPY toolchain /opt/gcc-16.1
 COPY server.py /app/server.py
